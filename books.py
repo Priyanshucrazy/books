@@ -9,7 +9,7 @@ app = FastAPI()
 # PostgreSQL Configuration
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://asureuser:Priyanshu@clem420@pkdb.postgres.database.azure.com:5432/postgres?sslmode=require"
+    "postgresql://azureuser:Priyanshu@clem420@pkdb.postgres.database.azure.com:5432/postgres?sslmode=require"
 )
 # Create database engine
 engine = create_engine(DATABASE_URL)

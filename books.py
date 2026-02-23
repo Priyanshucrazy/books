@@ -1,36 +1,34 @@
-from fastapi import FastAPI, Body, HTTPException, Depends
-from sqlalchemy import create_engine, Column, String, Integer
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
 import os
+from typing import Generator, Optional
+
+from fastapi import FastAPI, Body, Depends, HTTPException
+from sqlalchemy import Column, Integer, String, create_engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 app = FastAPI()
 
-# PostgreSQL Configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL" )
-# Create database engine
-engine = create_engine(DATABASE_URL)
+# --- Database config ---
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-# Define Book model
+# --- Model ---
 class Book(Base):
     __tablename__ = "books"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, unique=True, index=True)
-    author = Column(String, index=True)
-    category = Column(String, index=True)
+    title = Column(String, unique=True, index=True, nullable=False)
+    author = Column(String, index=True, nullable=False)
+    category = Column(String, index=True, nullable=False)
 
 
-# Create tables on startup
-Base.metadata.create_all(bind=engine)
-
-
-# Dependency to get DB session
-def get_db():
+# --- DB session dependency ---
+def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
@@ -38,160 +36,108 @@ def get_db():
         db.close()
 
 
-# Seed initial books on startup
+# --- Startup: create table + seed data ---
 @app.on_event("startup")
-async def startup_event():
-    """Seed initial books on application startup"""
+def startup_event() -> None:
+    Base.metadata.create_all(bind=engine)
+
     db = SessionLocal()
-    
-    initial_books = [
-        {'title': 'Title One', 'author': 'Author One', 'category': 'science'},
-        {'title': 'Title Two', 'author': 'Author Two', 'category': 'science'},
-        {'title': 'Title Three', 'author': 'Author Three', 'category': 'history'},
-        {'title': 'Title Four', 'author': 'Author Four', 'category': 'math'},
-        {'title': 'Title Five', 'author': 'Author Five', 'category': 'math'},
-        {'title': 'Title Six', 'author': 'Author Two', 'category': 'math'}
-    ]
-    
-    for book_data in initial_books:
-        # Check if book already exists
-        existing_book = db.query(Book).filter(Book.title == book_data['title']).first()
-        
-        if not existing_book:
-            book = Book(**book_data)
-            db.add(book)
-    
-    db.commit()
-    db.close()
-    print("✓ Initial books seeded successfully!")
+    try:
+        initial_books = [
+            {"title": "Title One", "author": "Author One", "category": "science"},
+            {"title": "Title Two", "author": "Author Two", "category": "science"},
+            {"title": "Title Three", "author": "Author Three", "category": "history"},
+            {"title": "Title Four", "author": "Author Four", "category": "math"},
+            {"title": "Title Five", "author": "Author Five", "category": "math"},
+            {"title": "Title Six", "author": "Author Two", "category": "math"},
+        ]
+
+        for book_data in initial_books:
+            exists = db.query(Book).filter(Book.title == book_data["title"]).first()
+            if not exists:
+                db.add(Book(**book_data))
+
+        db.commit()
+    finally:
+        db.close()
 
 
-# GET all books
+# --- Routes ---
 @app.get("/books")
-async def read_all_books(db: Session = Depends(get_db)):
-    """Get all books"""
-    if db is None:
-        db = SessionLocal()
-    books = db.query(Book).all()
-    return books
+def list_books(
+    db: Session = Depends(get_db),
+    title: Optional[str] = None,
+    author: Optional[str] = None,
+    category: Optional[str] = None,
+):
+    """
+    List books. Optionally filter by title, author, and/or category using query params.
+    Examples:
+      GET /books
+      GET /books?category=math
+      GET /books?author=Author%20Two&category=math
+      GET /books?title=Title%20One
+    """
+    q = db.query(Book)
+    if title:
+        q = q.filter(Book.title.ilike(title))
+    if author:
+        q = q.filter(Book.author.ilike(author))
+    if category:
+        q = q.filter(Book.category.ilike(category))
+    return q.all()
 
 
-# GET book by title
-@app.get("/books/{book_title}")
-async def read_book(book_title: str, db: Session = Depends(get_db)):
-    """Get a specific book by title"""
-    if db is None:
-        db = SessionLocal()
+@app.get("/books/title/{book_title}")
+def get_book_by_title(book_title: str, db: Session = Depends(get_db)):
     book = db.query(Book).filter(Book.title.ilike(book_title)).first()
-    
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
     return book
 
 
-# GET books by category (query parameter)
-@app.get("/books/")
-async def read_category_by_query(category: str, db: Session = Depends(get_db)):
-    """Get books by category"""
-    if db is None:
-        db = SessionLocal()
-    books = db.query(Book).filter(Book.category.ilike(category)).all()
-    return books
+@app.post("/books", status_code=201)
+def create_book(new_book=Body(...), db: Session = Depends(get_db)):
+    title = new_book.get("title")
+    author = new_book.get("author")
+    category = new_book.get("category")
 
+    if not title or not author or not category:
+        raise HTTPException(status_code=400, detail="title, author, category are required")
 
-# GET books by author
-@app.get("/books/byauthor/")
-async def read_books_by_author(author: str, db: Session = Depends(get_db):
-    """Get books by author"""
-    if db is None:
-        db = SessionLocal()
-    books = db.query(Book).filter(Book.author.ilike(author)).all()
-    return books
-
-
-# GET books by author and category
-@app.get("/books/{book_author}/")
-async def read_author_category_by_query(book_author: str, category: str, db: Session = Depends(get_db)):
-    """Get books by author and category"""
-    if db is None:
-        db = SessionLocal()
-    books = db.query(Book).filter(
-        Book.author.ilike(book_author),
-        Book.category.ilike(category)
-    ).all()
-    return books
-
-
-# POST create a new book
-@app.post("/books/create_book")
-async def create_book(new_book=Body(), db: Session = Depends(get_db)):
-    """Create a new book"""
-    if db is None:
-        db = SessionLocal()
-    
-    # Check if book already exists
-    existing_book = db.query(Book).filter(Book.title.ilike(new_book.get('title'))).first()
-    if existing_book:
+    existing = db.query(Book).filter(Book.title.ilike(title)).first()
+    if existing:
         raise HTTPException(status_code=400, detail="Book already exists")
-    
-    db_book = Book(
-        title=new_book.get('title'),
-        author=new_book.get('author'),
-        category=new_book.get('category')
-    )
-    
+
+    db_book = Book(title=title, author=author, category=category)
     db.add(db_book)
     db.commit()
     db.refresh(db_book)
-    
-    return {"message": "Book created successfully", "book": {
-        "id": db_book.id,
-        "title": db_book.title,
-        "author": db_book.author,
-        "category": db_book.category
-    }}
+    return db_book
 
 
-# PUT update a book
-@app.put("/books/update_book")
-async def update_book(updated_book=Body(), db: Session = Depends(get_db)):
-    """Update an existing book"""
-    if db is None:
-        db = SessionLocal()
-    
-    db_book = db.query(Book).filter(Book.title.ilike(updated_book.get('title'))).first()
-    
+@app.put("/books/title/{book_title}")
+def update_book(book_title: str, updated_book=Body(...), db: Session = Depends(get_db)):
+    db_book = db.query(Book).filter(Book.title.ilike(book_title)).first()
     if not db_book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
-    db_book.author = updated_book.get('author', db_book.author)
-    db_book.category = updated_book.get('category', db_book.category)
-    
+
+    if "author" in updated_book and updated_book["author"]:
+        db_book.author = updated_book["author"]
+    if "category" in updated_book and updated_book["category"]:
+        db_book.category = updated_book["category"]
+
     db.commit()
     db.refresh(db_book)
-    
-    return {"message": "Book updated successfully", "book": {
-        "id": db_book.id,
-        "title": db_book.title,
-        "author": db_book.author,
-        "category": db_book.category
-    }}
+    return db_book
 
 
-# DELETE a book
-@app.delete("/books/delete_book/{book_title}")
-async def delete_book(book_title: str, db: Session = Depends(get_db):
-    """Delete a book by title"""
-    if db is None:
-        db = SessionLocal()
-    
+@app.delete("/books/title/{book_title}")
+def delete_book(book_title: str, db: Session = Depends(get_db)):
     db_book = db.query(Book).filter(Book.title.ilike(book_title)).first()
-    
     if not db_book:
         raise HTTPException(status_code=404, detail="Book not found")
-    
+
     db.delete(db_book)
     db.commit()
-    
     return {"message": f"Book '{book_title}' deleted successfully"}

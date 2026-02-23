@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, HTTPException
+from fastapi import FastAPI, Body, HTTPException, Depends
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
@@ -68,7 +68,7 @@ async def startup_event():
 
 # GET all books
 @app.get("/books")
-async def read_all_books(db: Session = None):
+async def read_all_books(db: Session = Depends(get_db)):
     """Get all books"""
     if db is None:
         db = SessionLocal()
@@ -78,7 +78,7 @@ async def read_all_books(db: Session = None):
 
 # GET book by title
 @app.get("/books/{book_title}")
-async def read_book(book_title: str, db: Session = None):
+async def read_book(book_title: str, db: Session = Depends(get_db)):
     """Get a specific book by title"""
     if db is None:
         db = SessionLocal()
@@ -92,7 +92,7 @@ async def read_book(book_title: str, db: Session = None):
 
 # GET books by category (query parameter)
 @app.get("/books/")
-async def read_category_by_query(category: str, db: Session = None):
+async def read_category_by_query(category: str, db: Session = Depends(get_db)):
     """Get books by category"""
     if db is None:
         db = SessionLocal()
@@ -102,7 +102,7 @@ async def read_category_by_query(category: str, db: Session = None):
 
 # GET books by author
 @app.get("/books/byauthor/")
-async def read_books_by_author(author: str, db: Session = None):
+async def read_books_by_author(author: str, db: Session = Depends(get_db):
     """Get books by author"""
     if db is None:
         db = SessionLocal()
@@ -112,7 +112,7 @@ async def read_books_by_author(author: str, db: Session = None):
 
 # GET books by author and category
 @app.get("/books/{book_author}/")
-async def read_author_category_by_query(book_author: str, category: str, db: Session = None):
+async def read_author_category_by_query(book_author: str, category: str, db: Session = Depends(get_db)):
     """Get books by author and category"""
     if db is None:
         db = SessionLocal()
@@ -125,7 +125,7 @@ async def read_author_category_by_query(book_author: str, category: str, db: Ses
 
 # POST create a new book
 @app.post("/books/create_book")
-async def create_book(new_book=Body(), db: Session = None):
+async def create_book(new_book=Body(), db: Session = Depends(get_db)):
     """Create a new book"""
     if db is None:
         db = SessionLocal()
@@ -155,7 +155,7 @@ async def create_book(new_book=Body(), db: Session = None):
 
 # PUT update a book
 @app.put("/books/update_book")
-async def update_book(updated_book=Body(), db: Session = None):
+async def update_book(updated_book=Body(), db: Session = Depends(get_db)):
     """Update an existing book"""
     if db is None:
         db = SessionLocal()
@@ -181,7 +181,7 @@ async def update_book(updated_book=Body(), db: Session = None):
 
 # DELETE a book
 @app.delete("/books/delete_book/{book_title}")
-async def delete_book(book_title: str, db: Session = None):
+async def delete_book(book_title: str, db: Session = Depends(get_db):
     """Delete a book by title"""
     if db is None:
         db = SessionLocal()
